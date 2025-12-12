@@ -1,0 +1,10 @@
+ML Model : an XGboost Hosted on Google Cloud
+
+Tools used in Boltic and fynd eco system :
+1. Used Boltic Tables for the Seller permission to update price
+2. MCP on Boltic for google search and Boltic crawler
+3. Google search Integration on Boltic 
+4. fyn extension interactive dasboard for the seller 
+5. Real time data from fynd Products
+6. created a AI Agent Kaily for competitor price extraction using MCP making the process much more intutive 
+ 
