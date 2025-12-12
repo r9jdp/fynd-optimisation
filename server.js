@@ -9,13 +9,47 @@ const { setupFdk } = require("@gofynd/fdk-extension-javascript/express");
 const { SQLiteStorage } = require("@gofynd/fdk-extension-javascript/express/storage");
 const sqliteInstance = new sqlite3.Database('session_storage.db');
 const productRouter = express.Router();
+const axios = require('axios');
+// import { createClient } from "@boltic/sdk";
+const {createClient} = require("@boltic/sdk");
+const dotenv = require('dotenv');
+dotenv.config();
+
+    const client = createClient(process.env.BOLTIC_API_KEY);
+
+    async function tablefetcher() {
+      // 1. Get the table metadata to find the correct table name
+      const { data: usersTable, error } = await client.tables.findById("98898da1-bb1d-4c0d-a60d-06d14c6caaa4");
+    
+      if (error) {
+        console.error("Error In table :", error.message || error.meta);
+      } else {
+        console.log(`Found table: ${usersTable.name} (${usersTable.id})`);
+        
+        try {
+            // 2. Use executeSQL to fetch records. 
+            // We use double quotes around the table name to handle any special characters or case sensitivity.
+            const query = `SELECT * FROM "${usersTable.name}" LIMIT 10`;
+            const result = await client.sql.executeSQL(query);
+
+            // 3. The SDK returns data as an array: [rows, metadata]
+            if (result && result.data) {
+                const [rows] = result.data;
+                console.log("Table Data:", JSON.stringify(rows, null, 2));
+            }
+        } catch (sqlError) {
+            console.error("Error executing SQL:", sqlError);
+        }
+      } 
+    }
+    tablefetcher();
 
 
 const fdkExtension = setupFdk({
     api_key: process.env.EXTENSION_API_KEY,
     api_secret: process.env.EXTENSION_API_SECRET,
     base_url: process.env.EXTENSION_BASE_URL,
-    cluster: process.env.FP_API_DOMAIN,
+    cluster: process.env.FP_API_DOMAIN || "api.fynd.com",
     callbacks: {
         auth: async (req) => {
             // Write you code here to return initial launch url after auth process complete
@@ -130,6 +164,112 @@ productRouter.get('/application/:application_id', async function view(req, res, 
         return res.json({ items: allProducts });
     } catch (err) {
         next(err);
+    }
+});
+
+productRouter.get('/pricing-status', async (req, res) => {
+    try {
+        const { data: usersTable, error } = await client.tables.findById("98898da1-bb1d-4c0d-a60d-06d14c6caaa4");
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+        
+        const query = `SELECT * FROM "${usersTable.name}"`; 
+        const result = await client.sql.executeSQL(query);
+        
+        if (result && result.data) {
+            const [rows] = result.data;
+            // Return the last row as "latest"
+            return res.json({ latest: rows[rows.length - 1], all: rows });
+        }
+        return res.json({ latest: null, all: [] });
+
+    } catch (err) {
+        console.error("Error fetching pricing status:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+productRouter.post('/accept-price-update', async (req, res) => {
+    try {
+        const API_URL = "https://asia-south1.api.boltic.io/service/webhook/temporal/v1.0/6a74814f-4a31-4a20-b9d2-79d0df5b924e/workflows/execute/ebfad512-2b1e-41be-9284-f77c7a58c267";
+        const response = await axios.post(API_URL, {}, {
+            headers: {
+                "Content-Type": "application/json"
+            }
+        });
+        res.json(response.data);
+    } catch (error) {
+        console.error("Error triggering workflow:", error);
+        res.status(500).json({ error: "Failed to trigger workflow" });
+    }
+});
+
+productRouter.post('/deny-price-update', async (req, res) => {
+    try {
+        const { data: usersTable, error } = await client.tables.findById("98898da1-bb1d-4c0d-a60d-06d14c6caaa4");
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+
+        // Assuming we want to delete the pending record. 
+        // If an ID is provided in req.body, we could use that, but 'status = PENDING' is safer if ID is unknown.
+        // However, to be more precise, if we have an ID, we should use it.
+        // Let's try to use ID if available, otherwise fallback to status='PENDING'.
+        
+        let query;
+        if (req.body.id) {
+             query = `DELETE FROM "${usersTable.name}" WHERE id = '${req.body.id}'`;
+        } else {
+             query = `DELETE FROM "${usersTable.name}" WHERE status = 'PENDING'`;
+        }
+
+        console.log("Executing delete query:", query);
+        const result = await client.sql.executeSQL(query);
+        
+        res.json({ success: true, result });
+
+    } catch (err) {
+        console.error("Error denying price update:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+productRouter.post('/edit-price-update', async (req, res) => {
+    try {
+        const { new_price, id } = req.body;
+        if (!new_price) {
+            return res.status(400).json({ error: "New price is required" });
+        }
+
+        const { data: usersTable, error } = await client.tables.findById("98898da1-bb1d-4c0d-a60d-06d14c6caaa4");
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+
+        let updateQuery;
+        if (id) {
+             updateQuery = `UPDATE "${usersTable.name}" SET suggested_price = '${new_price}' WHERE id = '${id}'`;
+        } else {
+             updateQuery = `UPDATE "${usersTable.name}" SET suggested_price = '${new_price}' WHERE status = 'PENDING'`;
+        }
+        
+        console.log("Executing update query:", updateQuery);
+        await client.sql.executeSQL(updateQuery);
+
+        // Trigger workflow
+        const API_URL = "https://asia-south1.api.boltic.io/service/webhook/temporal/v1.0/6a74814f-4a31-4a20-b9d2-79d0df5b924e/workflows/execute/ebfad512-2b1e-41be-9284-f77c7a58c267";
+        const response = await axios.post(API_URL, {}, {
+            headers: {
+                "Content-Type": "application/json"
+            }
+        });
+
+        res.json({ success: true, workflow_response: response.data });
+
+    } catch (err) {
+        console.error("Error editing price update:", err);
+        res.status(500).json({ error: err.message });
     }
 });
 

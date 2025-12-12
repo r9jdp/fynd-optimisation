@@ -51,6 +51,6 @@ export default defineConfig({
       "^/fp(/|(\\?.*)?$)": proxyOptions,
      "^/adm(/|(\\?.*)?$)": proxyOptions,
     },
-    allowedHosts: ["recognised-affecting-acids-downloaded.trycloudflare.com","handed-theory-lovely-cinema.trycloudflare.com","integrate-scanner-caused-reload.trycloudflare.com"],
+    allowedHosts: ["recognised-affecting-acids-downloaded.trycloudflare.com","handed-theory-lovely-cinema.trycloudflare.com","females-third-observation-pointing.trycloudflare.com"],
   },
 });
